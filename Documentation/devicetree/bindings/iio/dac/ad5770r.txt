@@ -1,0 +1,101 @@
+Analog Devices AD5770R DAC device driver
+
+Required properties for the AD5770R:
+	- compatible: Must be "adi,ad5770r"
+	- reg: SPI chip select number for the device
+	- spi-max-frequency: Max SPI frequency to use (< 10000000)
+
+Optional properties:
+
+- reset-gpios: GPIO spec for the RESET pin. If specified, it will be
+		asserted during driver probe.
+
+- adi,output: Channel output current mode for each of the six channels.
+		The following values are supported:
+		* Channel 0:
+			* 00: 0 mA to 300 mA
+			* 01: -60 to 0 mA
+			* 02: -60 to 300 mA
+		* Channel 1:
+			* 01: 0 to 140 mA, low headroom
+			* 02: 0 to 140 mA, low noise and PSRR
+			* 03: 0 to 250 mA
+		* Channel 2:
+			* 00: 0 to 55 mA
+			* 01: 0 to 150 mA
+		* Channel 3 to Channel 5:
+			* 00: 0 to 45 mA
+			* 01: 0 to 100 mA
+
+- adi,alarm: Device alarm configuration
+		Each byte defines an alarm option:
+		* Byte 0 - OPEN_DRAIN_EN
+		* Byte 1 - THERMAL_SHUTDOWN_EN
+		* Byte 2 - BACKGROUND_CRC_EN
+		* Byte 3 - TEMP_WARNING_ALARM_MASK
+		* Byte 4 - OVER_TEMP_ALARM_MASK
+		* Byte 5 - NEGATIVE_CHANNEL0_ALARM_MASK
+		* Byte 6 - IREF_FAULT_ALARM_MASK
+		* Byte 7 - BACKGROUND_CRC_ALARM_MASK
+
+- adi,monitor: Monitor function setup.
+		Each byte in the device tree has a different function:
+		* Byte 0 - MON_FUNCTION
+		* Byte 1 - MUX_BUFFER
+		* Byte 2 - IB_EXT_EN
+		* Byte 3 - MON_CH
+
+- adi,ref_voltage: Reference voltage selection.
+		The following values are supported:
+			00 - External 2.5 V
+			01 - Internal 1.25 V (Reference output on)
+			02 - External 1.25 v
+			03 - Internal 1.25 V (Reference output off)
+
+- adi,external_ref: Switching between internal or external reference.
+		These are the valid values:
+			00 - internal resistor
+			01 - external resistor
+
+- adi,channel_cfg: Channel configuration.
+		Each byte represents a channel configuration:
+		* Byte 0 - CH0
+		* Byte 1 - CH1
+		* Byte 2 - CH2
+		* Byte 3 - CH3
+		* Byte 4 - CH4
+		* Byte 5 - CH5
+		* Byte 6 - CH0 sink
+		Available options:
+			00 - output shutdown (disable for sink)
+			01 - normal operation (enable for sink)
+
+- adi,channel_enable: Channel enable
+		Each byte represents a channel configuration:
+		* Byte 0 - CH0
+		* Byte 1 - CH1
+		* Byte 2 - CH2
+		* Byte 3 - CH3
+		* Byte 4 - CH4
+		* Byte 5 - CH5
+		Available options:
+			00 - Power down
+			01 - Power up/enable
+
+AD5770R Example:
+
+	ad5770r@0 {
+		compatible = "ad5770r";
+		reg = <0>;
+                spi-max-frequency = <1000000>;
+
+		reset-gpios = <&gpio 22 0>;
+
+		adi,output = [00 02 00 00 00 00];
+                adi,alarm = [00 00 00 00 00 00 00 00];
+                adi,monitor = [00 00 00 00];
+                adi,ref_voltage = [01];
+                adi,external_ref = [00];
+                adi,channel_cfg = [01 01 01 01 01 01 00];
+                adi,channel_enable = [01 01 01 01 01 01];
+        };
