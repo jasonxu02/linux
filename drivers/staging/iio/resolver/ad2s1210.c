@@ -75,6 +75,7 @@ enum ad2s1210_mode {
 	MOD_VEL,
 	MOD_CONFIG,
 	MOD_RESERVED,
+	MOD_CONFIG_ONLY,
 };
 
 static const unsigned int ad2s1210_resolution_value[] = { 10, 12, 14, 16 };
@@ -101,9 +102,11 @@ static const int ad2s1210_mode_vals[4][2] = {
 static inline void ad2s1210_set_mode(enum ad2s1210_mode mode,
 				     struct ad2s1210_state *st)
 {
-	gpiod_set_value(st->pdata->a[0], ad2s1210_mode_vals[mode][0]);
-	gpiod_set_value(st->pdata->a[1], ad2s1210_mode_vals[mode][1]);
-	st->mode = mode;
+	if (st->mode != MOD_CONFIG_ONLY) {
+		gpiod_set_value(st->pdata->a[0], ad2s1210_mode_vals[mode][0]);
+		gpiod_set_value(st->pdata->a[1], ad2s1210_mode_vals[mode][1]);
+		st->mode = mode;
+	}
 }
 
 /* write 1 bytes (address or data) to the chip */
@@ -166,9 +169,15 @@ int ad2s1210_update_frequency_control_word(struct ad2s1210_state *st)
 
 static unsigned char ad2s1210_read_resolution_pin(struct ad2s1210_state *st)
 {
-	return ad2s1210_resolution_value[
-		(gpiod_get_value(st->pdata->res[0]) << 1) |
-		gpiod_get_value(st->pdata->res[1])];
+	int res0 = 0;
+	int res1 = 0;
+
+	if (st->mode != MOD_CONFIG_ONLY) {
+		res0 = gpiod_get_value(st->pdata->res[0]);
+		res1 = gpiod_get_value(st->pdata->res[1]);
+	}
+
+	return ad2s1210_resolution_value[(res0 << 1) | res1];
 }
 
 static const int ad2s1210_res_pins[4][2] = {
@@ -177,10 +186,15 @@ static const int ad2s1210_res_pins[4][2] = {
 
 static inline void ad2s1210_set_resolution_pin(struct ad2s1210_state *st)
 {
-	gpiod_set_value(st->pdata->res[0],
-			ad2s1210_res_pins[(st->resolution - 10) / 2][0]);
-	gpiod_set_value(st->pdata->res[1],
-			ad2s1210_res_pins[(st->resolution - 10) / 2][1]);
+	int index;
+
+	if (st->mode != MOD_CONFIG_ONLY) {
+		index = (st->resolution - 10) / 2;
+		gpiod_set_value(st->pdata->res[0],
+				ad2s1210_res_pins[index][0]);
+		gpiod_set_value(st->pdata->res[1],
+				ad2s1210_res_pins[index][1]);
+	}
 }
 
 static inline int ad2s1210_soft_reset(struct ad2s1210_state *st)
@@ -485,10 +499,24 @@ static int ad2s1210_read_raw(struct iio_dev *indio_dev,
 
 	switch (chan->type) {
 	case IIO_ANGL:
-		ad2s1210_set_mode(MOD_POS, st);
+		if (st->mode != MOD_CONFIG_ONLY)
+			ad2s1210_set_mode(MOD_POS, st);
+		else {
+			st->rx[0] = ad2s1210_config_read(st,
+					AD2S1210_REG_POSITION);
+			st->rx[1] = ad2s1210_config_read(st,
+					AD2S1210_REG_POSITION + 1);
+		}
 		break;
 	case IIO_ANGL_VEL:
-		ad2s1210_set_mode(MOD_VEL, st);
+		if (st->mode != MOD_CONFIG_ONLY)
+			ad2s1210_set_mode(MOD_VEL, st);
+		else {
+			st->rx[0] = ad2s1210_config_read(st,
+					AD2S1210_REG_VELOCITY);
+			st->rx[1] = ad2s1210_config_read(st,
+					AD2S1210_REG_VELOCITY + 1);
+		}
 		break;
 	default:
 	       ret = -EINVAL;
@@ -496,9 +524,11 @@ static int ad2s1210_read_raw(struct iio_dev *indio_dev,
 	}
 	if (ret < 0)
 		goto error_ret;
-	ret = spi_read(st->sdev, st->rx, 2);
-	if (ret < 0)
-		goto error_ret;
+	if (st->mode != MOD_CONFIG_ONLY) {
+		ret = spi_read(st->sdev, st->rx, 2);
+		if (ret < 0)
+			goto error_ret;
+	}
 
 	switch (chan->type) {
 	case IIO_ANGL:
@@ -652,36 +682,36 @@ static int ad2s1210_setup_gpios(struct ad2s1210_state *st)
 		return PTR_ERR(st->pdata->sample);
 
 	if (st->pdata->gpioin) {
-		st->pdata->a[0] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->a[0] = devm_gpiod_get_optional(&st->sdev->dev,
 					"a0", GPIOD_IN);
 		if (IS_ERR(st->pdata->a[0]))
 			return PTR_ERR(st->pdata->a[0]);
-		st->pdata->a[1] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->a[1] = devm_gpiod_get_optional(&st->sdev->dev,
 					"a1", GPIOD_IN);
 		if (IS_ERR(st->pdata->a[1]))
 			return PTR_ERR(st->pdata->a[1]);
-		st->pdata->res[0] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->res[0] = devm_gpiod_get_optional(&st->sdev->dev,
 					"res0", GPIOD_IN);
 		if (IS_ERR(st->pdata->res[0]))
 			return PTR_ERR(st->pdata->res[0]);
-		st->pdata->res[1] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->res[1] = devm_gpiod_get_optional(&st->sdev->dev,
 					"res1", GPIOD_IN);
 		if (IS_ERR(st->pdata->res[1]))
 			return PTR_ERR(st->pdata->res[1]);
 	} else {
-		st->pdata->a[0] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->a[0] = devm_gpiod_get_optional(&st->sdev->dev,
 					"a0", GPIOD_OUT_LOW);
 		if (IS_ERR(st->pdata->a[0]))
 			return PTR_ERR(st->pdata->a[0]);
-		st->pdata->a[1] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->a[1] = devm_gpiod_get_optional(&st->sdev->dev,
 					"a1", GPIOD_OUT_LOW);
 		if (IS_ERR(st->pdata->a[1]))
 			return PTR_ERR(st->pdata->a[1]);
-		st->pdata->res[0] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->res[0] = devm_gpiod_get_optional(&st->sdev->dev,
 					"res0", GPIOD_OUT_LOW);
 		if (IS_ERR(st->pdata->res[0]))
 			return PTR_ERR(st->pdata->res[0]);
-		st->pdata->res[1] = devm_gpiod_get(&st->sdev->dev,
+		st->pdata->res[1] = devm_gpiod_get_optional(&st->sdev->dev,
 					"res1", GPIOD_OUT_LOW);
 		if (IS_ERR(st->pdata->res[1]))
 			return PTR_ERR(st->pdata->res[1]);
@@ -742,6 +772,10 @@ static int ad2s1210_probe(struct spi_device *spi)
 	ret = ad2s1210_setup_gpios(st);
 	if (ret < 0)
 		return ret;
+
+	if (!st->pdata->a[0] || !st->pdata->a[1] ||
+	   !st->pdata->res[0] || !st->pdata->res[1])
+		st->mode = MOD_CONFIG_ONLY;
 
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &ad2s1210_info;
